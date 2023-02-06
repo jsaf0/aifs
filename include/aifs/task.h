@@ -44,15 +44,18 @@ namespace aifs {
         template<typename Fut>
         friend struct scheduled_task;
 
-        explicit task(coro_handle h) noexcept : handle_(h) {}
-        task(task&& other) noexcept : handle_{std::exchange(other.handle_, {})} {}
+        explicit task(coro_handle h) noexcept : handle_(h) {fmt::print("task ctor1\n");}
+        task(task&& other) noexcept : handle_{std::exchange(other.handle_, {})} {
+            fmt::print("task ctor\n");
+        }
 
-        ~task() {}
+        ~task() {
+            fmt::print("task dtor\n");
+        }
 
         struct awaitable_base {
             constexpr bool await_ready() {
                 if (self_) {
-                    fmt::print("{} is done: {}\n", self_.promise().id_, self_.done());
                     return self_.done();
                 }
                 return true;
@@ -60,7 +63,6 @@ namespace aifs {
 
             template <typename Promise>
             auto await_suspend(std::coroutine_handle<Promise> resumer) const noexcept {
-                fmt::print("[{}] await_suspend\n", self_.promise().id_);
                 self_.promise().continuation_ = &resumer.promise();
                 return self_;
             }
@@ -74,7 +76,6 @@ namespace aifs {
                     return awaitable_base::self_.promise().result();
                 }
             };
-            fmt::print("co_await on task {}\n", handle_.promise().id_);
             return awaiter{handle_};
         }
 
@@ -84,7 +85,6 @@ namespace aifs {
             }
 
             auto initial_suspend() noexcept {
-                fmt::print("[{}] initial suspend\n", id_);
                 return std::suspend_always{};
             }
 
@@ -93,21 +93,19 @@ namespace aifs {
                 template <typename Promise>
                 constexpr void await_suspend(std::coroutine_handle<Promise> h) const noexcept {
                     if (auto cont = h.promise().continuation_) {
-                        cont->run();
+                        cont->perform();
                     }
                 }
                 constexpr void await_resume() const noexcept {}
             };
 
             auto final_suspend() noexcept {
-                fmt::print("[{}] final suspend\n", id_);
                 return final_awaiter{};
             }
 
             void unhandled_exception() {}
 
-            void run() override {
-                fmt::print("[{}] run\n", id_);
+            void perform() override {
                 coro_handle::from_promise(*this).resume();
             }
 
