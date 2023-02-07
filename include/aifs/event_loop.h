@@ -84,7 +84,7 @@ namespace aifs {
 
     private:
         bool is_stop() {
-            return false; // schedule_.empty();
+            return schedule_.empty();
         }
 
         void run_once() {
@@ -97,12 +97,12 @@ namespace aifs {
             }
 
             // TODO: Replace with call to selector/reactor
-            //if (timeout) {
-                // std::this_thread::sleep_for(timeout.value());
-            //}
+            if (timeout) {
+                 std::this_thread::sleep_for(timeout.value());
+            }
 
             epoll_event events[128];
-            int num_events = epoll_wait(epoll_fd_, events, 128, timeout.has_value() ? timeout.value().count() : -1);
+            int num_events = 0; //epoll_wait(epoll_fd_, events, 128, timeout.has_value() ? timeout.value().count() : -1);
 
             std::queue<operation*> ready;
             // Generate queue of ready operations.
@@ -131,22 +131,21 @@ namespace aifs {
                 schedule_.pop_back();
             }
 
-#if 0
-            // Run all ready handles
-            for (std::size_t todo = ready_.size(), i = 0; i < todo; ++i) {
-                auto [handle_id, handle] = ready_.front();
-                ready_.pop();
-                handle->run();
-            }
-#endif
 
-            // Perform the ready options
-            if (!ready.empty()) {
-                while (operation *op = ready.front()) {
-                    ready.pop();
-                    op->perform();
-                }
+            // Run all ready handles
+            for (std::size_t todo = ready.size(), i = 0; i < todo; ++i) {
+                auto op = ready.front();
+                ready.pop();
+                op->perform();
             }
+
+//            // Perform the ready options
+//            if (!ready.empty()) {
+//                while (operation *op = ready.front()) {
+//                    ready.pop();
+//                    op->perform();
+//                }
+//            }
         }
 
     private:
