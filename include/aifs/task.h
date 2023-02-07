@@ -90,7 +90,7 @@ namespace aifs {
             return awaiter{handle_};
         }
 
-        struct promise : handle, Result<ReturnType> {
+        struct promise : Result<ReturnType> {
             task get_return_object() {
                 return task{coro_handle::from_promise(*this)};
             }
@@ -116,7 +116,7 @@ namespace aifs {
 
             void unhandled_exception() {}
 
-            void perform() override {
+            void perform() {
                 coro_handle::from_promise(*this).resume();
             }
 
