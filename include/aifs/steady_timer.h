@@ -17,6 +17,10 @@ namespace aifs {
             return awaitable{this};
         }
 
+        auto operator co_await () noexcept {
+            return async_wait();
+        }
+
     private:
         struct awaitable : operation {
             awaitable(steady_timer* self)
