@@ -124,7 +124,4 @@ namespace aifs {
         // TODO: Should not be public
         coro_handle handle_;
     };
-
-    template <typename ReturnType>
-    using awaitable = task<ReturnType>;
 }

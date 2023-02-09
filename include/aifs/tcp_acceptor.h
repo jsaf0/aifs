@@ -5,24 +5,36 @@
 #include <fmt/core.h>
 #include <arpa/inet.h>
 #include <sys/socket.h>
+#include <fcntl.h>
 
+#include "awaitable.h"
 #include "event_loop.h"
 #include "operation.h"
 #include "descriptor.h"
 #include "tcp_socket.h"
 
 namespace aifs {
-    class tcp_acceptor {
+    template <typename Socket>
+    class acceptor {
+    public:
+        virtual ~acceptor() = default;
+        virtual awaitable<Socket> async_accept() = 0;
+    };
+
+    class tcp_acceptor : public acceptor<tcp_socket> {
     private:
         struct accept_op;
 
     public:
         tcp_acceptor(event_loop &ctx, int port) : ev_{ctx}, desc_{-1}
         {
-            desc_.fd = ::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0);
+            desc_.fd = ::socket(AF_INET, SOCK_STREAM/* | SOCK_NONBLOCK */, 0);
             if (desc_.fd < 0) {
                 throw std::system_error(errno, std::generic_category(), "socket");
             }
+
+            // The SOCK_NONBLOCK flag is not supported on macOS!
+            ::fcntl(desc_.fd, F_SETFL, O_NONBLOCK);
 
             int val = 1;
             int ret = ::setsockopt(desc_.fd, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
@@ -52,12 +64,12 @@ namespace aifs {
             }
         }
 
-        [[nodiscard]] accept_op async_accept()
+        [[nodiscard]] awaitable<tcp_socket> async_accept() override
         {
             if (desc_.fd == -1) {
                 throw std::runtime_error("Not ready to accept");
             }
-            return {this};
+            return awaitable<tcp_socket>{accept_op{this}};
         }
 
     private:
@@ -65,17 +77,12 @@ namespace aifs {
             accept_op(tcp_acceptor* acceptor) : acceptor_{acceptor}
             { }
 
-            [[nodiscard]] constexpr bool await_ready() const noexcept
-            {
-                return false;
-            }
-
-            [[nodiscard]] tcp_socket await_resume() noexcept
+            tcp_socket await_resume()
             {
                 return std::move(*socket_);
             }
 
-            void await_suspend(std::coroutine_handle<> h) noexcept
+            void await_suspend(std::coroutine_handle<> h)
             {
                 waiting_coroutine_ = h;
                 acceptor_->ev_.add_operation(&acceptor_->desc_, event_loop::op_type::READ_OP, this);

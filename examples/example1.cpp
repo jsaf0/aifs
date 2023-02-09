@@ -24,7 +24,7 @@ namespace http {
         {
             spdlog::info("Handle connection from {}:{}", socket_.remote_address(), socket_.remote_port());
             const std::string resp = "HTTP/1.1 200 OK\r\n\r\n";
-            // co_await socket_.send(resp);
+            /*co_await*/ socket_.send(resp);
             socket_.close();
             co_return;
         }
@@ -42,9 +42,10 @@ namespace http {
 
         aifs::task<> start()
         {
+            aifs::acceptor<aifs::tcp_socket>& acceptor = acceptor_;
             try {
                 for (;;) {
-                    aifs::tcp_socket socket = co_await acceptor_.async_accept();
+                    auto socket = co_await acceptor.async_accept();
                     aifs::spawn(handle_connection(std::move(socket)));
                 }
             } catch (const std::exception& e) {

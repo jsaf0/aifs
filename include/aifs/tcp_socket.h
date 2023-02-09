@@ -3,6 +3,7 @@
 #include <string>
 
 #include <spdlog/spdlog.h>
+#include <unistd.h>
 
 #include "non_copyable.h"
 
