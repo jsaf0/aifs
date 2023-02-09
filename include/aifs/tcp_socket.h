@@ -2,7 +2,7 @@
 
 #include <string>
 
-#include <fmt/core.h>
+#include <spdlog/spdlog.h>
 
 #include "non_copyable.h"
 
@@ -23,12 +23,10 @@ namespace aifs {
             // TODO: Implement asynchronous send/receive!
             char buf[1024];
             ::read(fd_, buf, 1024);
-            fmt::print("Got: {}\n", buf);
             ::write(fd_, resp.data(), resp.size());
         }
 
         void close() {
-            fmt::print("fd = {}, close\n", fd_);
             ::close(fd_);
         }
 
