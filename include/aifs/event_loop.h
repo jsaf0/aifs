@@ -19,7 +19,7 @@ namespace aifs {
     public:
         using ms_duration = std::chrono::milliseconds;
         using timer_handle = std::pair<ms_duration, operation*>;
-        enum op_type { READ_OP = 0, WRITE_OP = 1, PRI_OP = 2, MAX_OP = 3 };
+        enum op_type { read_op = 0, write_op = 1, pri_op = 2, max_op = 3 };
 
     public:
         event_loop();
@@ -63,10 +63,22 @@ namespace aifs {
             work_started();
         }
 
+        void cancel_operation(descriptor* desc, op_type type)
+        {
+            for (auto it = pending_ops_[type].begin(); it != pending_ops_[type].end();) {
+                if (it->first == desc) {
+                    it->second->ec = std::make_error_code(std::errc::operation_canceled);
+                    ready_.push(it->second);
+                    pending_ops_[type].erase(it);
+                    break;
+                }
+            }
+        }
+
         void spawn(task<> t);
 
     private:
-        bool is_stop();
+        [[nodiscard]] bool is_stop() const;
         void run_once();
 
         void work_started()
@@ -87,7 +99,7 @@ namespace aifs {
         std::chrono::milliseconds start_time_;
         std::vector<timer_handle> schedule_;
         std::queue<operation*> ready_;
-        std::vector<std::pair<descriptor*, operation*>> pending_ops_[MAX_OP];
+        std::vector<std::pair<descriptor*, operation*>> pending_ops_[max_op];
         uint64_t outstanding_work_;
     };
 }

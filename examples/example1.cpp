@@ -16,56 +16,60 @@ using namespace std::chrono_literals;
 namespace http {
     class http_connection {
     public:
-        http_connection(aifs::tcp_socket s)
-            : socket_{std::move(s)} {}
+        http_connection(aifs::event_loop&, aifs::tcp_socket s)
+            : log_{spdlog::stdout_color_mt("conn:" + std::to_string(s.remote_port()))},/* ev_{ev}, */socket_{std::move(s)} {}
 
         aifs::task<> handle()
         {
-            spdlog::info("Handle connection from {}:{}", socket_.remote_address(), socket_.remote_port());
+            log_->info("Handle connection from {}:{}", socket_.remote_address(), socket_.remote_port());
+
+            std::array<char, 1024> req{};
+            int n = co_await socket_.async_receive(req);
+            log_->info("Received {} bytes", n);
+
             const std::string resp = "HTTP/1.1 200 OK\r\n\r\n";
-            /*co_await*/ socket_.send(resp);
+            n = co_await socket_.async_send(resp);
+            log_->info("Sent {} bytes", n);
+
             socket_.close();
-            co_return;
+            log_->info("Close");
         }
 
     private:
         std::shared_ptr<spdlog::logger> log_;
+        // aifs::event_loop& ev_;
         aifs::tcp_socket socket_;
     };
 
     class http_server {
     public:
-        http_server(aifs::event_loop& ev)
+        explicit http_server(aifs::event_loop& ev)
             : ev_{ev}
             , acceptor_(ev, 8080)
         {}
 
         aifs::task<> start()
         {
-            aifs::acceptor<aifs::tcp_socket>& acceptor = acceptor_;
             try {
-                // XXX: Stop after handling two connections!
-                for (int i = 0; i < 2; ++i) {
-                    auto socket = co_await acceptor.async_accept();
+                for (;;) {
+                    auto socket = co_await acceptor_.async_accept();
                     ev_.spawn(handle_connection(std::move(socket)));
                 }
-            } catch (const std::exception& e) {
-                spdlog::error("Got exception while handling connection: {}", e.what());
+            } catch (const std::system_error& e) {
+                spdlog::error("Got system error: {}", e.what());
             }
-            spdlog::warn("Done");
         }
 
         void stop()
         {
-            // TODO: Handle stop - cancel connections and acceptor
-            spdlog::info("Stop");
+            acceptor_.cancel();
         }
 
     private:
         aifs::task<> handle_connection(aifs::tcp_socket socket)
         {
             try {
-                http_connection conn{std::move(socket)};
+                http_connection conn{ev_, std::move(socket)};
                 co_await conn.handle();
             } catch (const std::exception& e) {
                 spdlog::error("Got exception ({}): {}", __func__, e.what());
@@ -80,7 +84,7 @@ namespace http {
 
 int main()
 {
-    spdlog::info("http_server");
+    spdlog::info("Running HTTP server");
     try {
         aifs::event_loop ev;
 
@@ -88,8 +92,9 @@ int main()
         ev.spawn(server.start());
 
         ev.spawn([&]() -> aifs::task<> {
-            co_await aifs::steady_timer{ev, 1s};
+            co_await aifs::steady_timer{ev, 5s};
             spdlog::info("Timer expired");
+            server.stop();
         }());
 
         ev.run();
