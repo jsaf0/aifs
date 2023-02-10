@@ -16,7 +16,7 @@ namespace aifs {
         struct timer_op;
 
     public:
-        steady_timer(io_context& ctx, std::chrono::milliseconds when)
+        steady_timer(event_loop& ctx, std::chrono::milliseconds when)
             : ctx_{ctx}, when_{std::move(when)} {
         }
 
@@ -52,7 +52,7 @@ namespace aifs {
         };
 
     private:
-        io_context& ctx_;
+        event_loop& ctx_;
         std::chrono::milliseconds when_;
     };
 }
