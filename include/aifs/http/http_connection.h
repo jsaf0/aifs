@@ -1,119 +1,117 @@
 #pragma once
 
+#include <http_parser.h>
+
 #include <map>
 #include <string>
 
-#include <http_parser.h>
-
 #include "aifs/event_loop.h"
 #include "aifs/log.h"
+#include "aifs/steady_timer.h"
 #include "aifs/task.h"
 #include "aifs/tcp_socket.h"
-#include "aifs/steady_timer.h"
 
 namespace aifs::http {
-    class req_parser {
-    public:
-        req_parser()
-        {
-            parser_settings_.on_message_complete = [](http_parser* p) {
-                req_parser* self = reinterpret_cast<req_parser*>(p->data);
-                self->complete_ = true;
-                return 0;
-            };
+class RequestParser {
+public:
+    RequestParser()
+    {
+        m_parser_settings.on_message_complete = [](http_parser* p) {
+            RequestParser* self = reinterpret_cast<RequestParser*>(p->data);
+            self->m_complete = true;
+            return 0;
+        };
 
-            parser_settings_.on_url = [](http_parser* p, const char* at, std::size_t n) {
-                req_parser* self = reinterpret_cast<req_parser*>(p->data);
-                self->url_ = std::string(at, n);
-                return 0;
-            };
+        m_parser_settings.on_url = [](http_parser* p, const char* at, std::size_t n) {
+            RequestParser* self = reinterpret_cast<RequestParser*>(p->data);
+            self->m_url = std::string(at, n);
+            return 0;
+        };
 
-            parser_settings_.on_body = [](http_parser* p, const char* at, std::size_t n) {
-                req_parser* self = reinterpret_cast<req_parser*>(p->data);
-                self->body_.append(at, n);
-                return 0;
-            };
+        m_parser_settings.on_body = [](http_parser* p, const char* at, std::size_t n) {
+            RequestParser* self = reinterpret_cast<RequestParser*>(p->data);
+            self->m_body.append(at, n);
+            return 0;
+        };
 
-            parser_settings_.on_header_field = [](http_parser* p, const char* at, std::size_t n) {
-                // spdlog::info("header field: {}", std::string(at, n));
-                req_parser* self = reinterpret_cast<req_parser*>(p->data);
-                self->cur_header_field_ = std::string(at, n);
-                return 0;
-            };
+        m_parser_settings.on_header_field = [](http_parser* p, const char* at, std::size_t n) {
+            RequestParser* self = reinterpret_cast<RequestParser*>(p->data);
+            self->m_cur_header_field = std::string(at, n);
+            return 0;
+        };
 
-            parser_settings_.on_header_value = [](http_parser* p, const char* at, std::size_t n) {
-                // spdlog::info("header value: {}", std::string(at, n));
-                req_parser* self = reinterpret_cast<req_parser*>(p->data);
-                self->headers_.emplace(self->cur_header_field_, std::string(at, n));
-                return 0;
-            };
+        m_parser_settings.on_header_value = [](http_parser* p, const char* at, std::size_t n) {
+            RequestParser* self = reinterpret_cast<RequestParser*>(p->data);
+            self->m_headers.emplace(self->m_cur_header_field, std::string(at, n));
+            return 0;
+        };
 
-            http_parser_init(&parser_, HTTP_REQUEST);
-            parser_.data = this;
-        }
+        http_parser_init(&m_parser, HTTP_REQUEST);
+        m_parser.data = this;
+    }
 
-    public:
-        unsigned int consume(std::span<const char> chunk)
-        {
-            http_parser_execute(&parser_, &parser_settings_, chunk.data(), chunk.size());
-            return parser_.http_errno;
-        }
+public:
+    unsigned int consume(std::span<const char> chunk)
+    {
+        http_parser_execute(&m_parser, &m_parser_settings, chunk.data(), chunk.size());
+        return m_parser.http_errno;
+    }
 
-    public:
-        bool complete_{false};
-        std::string url_{};
-        std::string body_{};
-        std::map<std::string, std::string> headers_{};
+public:
+    bool m_complete { false };
+    std::string m_url {};
+    std::string m_body {};
+    std::map<std::string, std::string> m_headers {};
 
-    private:
-        http_parser_settings parser_settings_{};
-        http_parser parser_{};
-        std::string cur_header_field_{};
-    };
+private:
+    http_parser_settings m_parser_settings {};
+    http_parser m_parser {};
+    std::string m_cur_header_field {};
+};
 
-    class http_connection {
-    public:
-        http_connection(event_loop& ev, std::unique_ptr<tcp_socket> socket)
-            : log_{make_logger("conn:" + std::to_string(socket->remote_port()))}
-            , ev_{ev}
-            , socket_{std::move(socket)}
-            , parser_{}
-        {
-        }
+class HTTPConnection {
+public:
+    HTTPConnection(EventLoop& ev, std::unique_ptr<TCPSocket> socket)
+        : m_log { makeLogger("conn:" + std::to_string(socket->remote_port())) }
+        , m_eventLoop { ev }
+        , m_socket { std::move(socket) }
+        , m_parser {}
+    {
+    }
 
-        task<> handle()
-        {
-            try {
-                std::array<char, 8 * 1024> buffer{};
-                for (;;) {
-                    ssize_t received = co_await socket_->receive(buffer);
-                    auto res = parser_.consume({buffer.data(), static_cast<std::size_t>(received)});
-                    if (res != HPE_OK && res != HPE_PAUSED) {
-                        log_->warn("parsing failed");
-                        break;
-                    }
-                    if (parser_.complete_) {
-                        log_->info("Got request for {}", parser_.url_);
-                        for (const auto& [f, v] : parser_.headers_) {
-                            log_->info("Header: {} = {}", f, v);
-                        }
-                        log_->info("Body: {}", parser_.body_);
-                        break;
-                    }
+    Task<> handle()
+    {
+        try {
+            std::array<char, 8 * 1024> buffer {};
+            for (;;) {
+                ssize_t received = co_await m_socket->receive(buffer);
+                auto res = m_parser.consume({ buffer.data(), static_cast<std::size_t>(received) });
+                if (res != HPE_OK && res != HPE_PAUSED) {
+                    m_log->warn("parsing failed");
+                    break;
                 }
-
-                log_->warn("Reply with 200 OK");
-                co_await socket_->send("HTTP/1.1 200 OK\r\n\r\n");
-                socket_->close();
-            } catch (const std::exception& e) {
-                log_->error("Exception: {}", e.what());
+                if (m_parser.m_complete) {
+                    m_log->info("Got request for {}", m_parser.m_url);
+                    for (const auto& [f, v] : m_parser.m_headers) {
+                        m_log->info("Header: {} = {}", f, v);
+                    }
+                    m_log->info("Body: {}", m_parser.m_body);
+                    break;
+                }
             }
-        }
 
-    private:
-        logger log_;
-        event_loop& ev_;
-        std::unique_ptr<tcp_socket> socket_;
-        req_parser parser_;
-    };
-}
+            m_log->warn("Reply with 200 OK");
+            co_await m_socket->send("HTTP/1.1 200 OK\r\n\r\n");
+            m_socket->close();
+        } catch (const std::exception& e) {
+            m_log->error("Exception: {}", e.what());
+        }
+    }
+
+private:
+    Logger m_log;
+    EventLoop& m_eventLoop;
+    std::unique_ptr<TCPSocket> m_socket;
+    RequestParser m_parser;
+};
+} // namespace aifs::http

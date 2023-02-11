@@ -5,54 +5,59 @@
 #include "task.h"
 
 namespace aifs {
-    class timer {
-    public:
-        virtual ~timer() = default;
-        [[nodiscard]] virtual awaitable<> async_wait() = 0;
+class Timer {
+public:
+    virtual ~Timer() = default;
+    [[nodiscard]] virtual Awaitable<> wait() = 0;
+};
+
+class SteadyTimer : public Timer {
+private:
+    struct TimerOp;
+
+public:
+    SteadyTimer(EventLoop& ctx, std::chrono::milliseconds when)
+        : m_eventLoop { ctx }
+        , m_when { std::move(when) }
+    {
+    }
+
+    [[nodiscard]] Awaitable<> wait()
+    {
+        return Awaitable<> { TimerOp { this } };
+    }
+
+    auto operator co_await() noexcept { return wait(); }
+
+private:
+    struct TimerOp : Operation {
+        TimerOp(SteadyTimer* self)
+            : m_self { self }
+            , m_continuation { nullptr }
+        {
+        }
+
+        void await_resume() const noexcept { }
+
+        void await_suspend(std::coroutine_handle<> h) noexcept
+        {
+            m_continuation = h;
+            m_self->m_eventLoop.callLater(m_self->m_when, this);
+        }
+
+        void perform(const std::error_code&)
+        {
+            if (m_continuation) {
+                m_continuation.resume();
+            }
+        }
+
+        SteadyTimer* m_self;
+        std::coroutine_handle<> m_continuation;
     };
 
-    class steady_timer : public timer {
-    private:
-        struct timer_op;
-
-    public:
-        steady_timer(event_loop& ctx, std::chrono::milliseconds when)
-            : ctx_{ctx}, when_{std::move(when)} {
-        }
-
-        [[nodiscard]] awaitable<> async_wait() {
-            return awaitable<>{timer_op{this}};
-        }
-
-        auto operator co_await () noexcept {
-            return async_wait();
-        }
-
-    private:
-        struct timer_op : operation {
-            timer_op(steady_timer* self)
-                : self_{self}, continuation_{nullptr} {}
-
-            void await_resume() const noexcept {
-            }
-
-            void await_suspend(std::coroutine_handle<> h) noexcept {
-                continuation_ = h;
-                self_->ctx_.call_later(self_->when_, this);
-            }
-
-            void perform(const std::error_code&) {
-                if (continuation_) {
-                    continuation_.resume();
-                }
-            }
-
-            steady_timer* self_;
-            std::coroutine_handle<> continuation_;
-        };
-
-    private:
-        event_loop& ctx_;
-        std::chrono::milliseconds when_;
-    };
-}
+private:
+    EventLoop& m_eventLoop;
+    std::chrono::milliseconds m_when;
+};
+} // namespace aifs

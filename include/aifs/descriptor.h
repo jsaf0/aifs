@@ -1,7 +1,7 @@
 #pragma once
 
 namespace aifs {
-    struct descriptor {
-        int fd;
-    };
-}
+struct Descriptor {
+    int m_fd;
+};
+} // namespace aifs
