@@ -16,7 +16,17 @@
 #include "aifs/event_loop.h"
 
 namespace aifs {
-class TCPSocket : NonCopyable {
+class StreamSocket {
+public:
+    virtual ~StreamSocket() = default;
+    // virtual std::string remote_address() const = 0;
+    virtual unsigned short remote_port() const = 0;
+    virtual Awaitable<ssize_t> receive(std::span<char> buffer) = 0;
+    virtual Awaitable<ssize_t> send(std::span<const char> buffer) = 0;
+    virtual void close() const = 0;
+};
+
+class TCPSocket : NonCopyable, public StreamSocket {
 private:
     struct ReceiveOp;
     struct SendOp;

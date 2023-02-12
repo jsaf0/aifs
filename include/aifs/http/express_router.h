@@ -14,7 +14,8 @@
 #include <optional>
 
 namespace aifs::http {
-using HandlerFn = std::function<Task<>(const Request&, Response&)>;
+
+using HandlerFn = std::function<Task<HandlerStatus>(const Request&, Response&)>;
 
 namespace detail {
     struct Route {
@@ -29,16 +30,18 @@ namespace detail {
 
 class ExpressRouter : public Router {
 public:
-    Task<> handle(const Request& req, Response& resp)
+    Task<HandlerStatus> handle(const Request& req, Response& resp)
     {
         for (auto& layer : m_layers) {
             if (layer.route && (*layer.route).path == req.url()) {
-                co_await (*layer.route).fn(req, resp);
-                break;
+                auto status = co_await (*layer.route).fn(req, resp);
+                if (status == HandlerStatus::Accepted) {
+                    co_return status;
+                }
             }
         }
         // TODO: What if we didn't handle the request?
-        co_return;
+        co_return HandlerStatus::NotAccepted;
     }
 
     void get(const std::string& path, HandlerFn fn)

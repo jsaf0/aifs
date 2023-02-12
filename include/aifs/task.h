@@ -4,6 +4,7 @@
 #include <utility>
 #include <variant>
 #include <exception>
+#include <stdexcept>
 
 #include "non_copyable.h"
 
@@ -18,10 +19,13 @@ struct Result {
 
     constexpr T result()
     {
+        if (auto exception = std::get_if<std::exception_ptr>(&m_result)) {
+            std::rethrow_exception(*exception);
+        }
         if (auto res = std::get_if<T>(&m_result)) {
             return *res;
         }
-        return T { -1 };
+        throw std::runtime_error("no result error");
     }
 
     std::variant<std::monostate, T, std::exception_ptr> m_result;

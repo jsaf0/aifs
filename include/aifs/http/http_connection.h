@@ -99,9 +99,10 @@ public:
                     m_log->info("Got request for {}", m_parser.m_url);
                     Request req { m_parser.m_method, m_parser.m_url };
                     Response resp{*m_socket};
-                    // TODO: Check if router actually did handle the request and sent a response.
-                    // TODO: Where should the 404 be sent from?
-                    co_await m_router.handle(req, resp);
+                    auto status = co_await m_router.handle(req, resp);
+                    if (status != HandlerStatus::Accepted) {
+                        co_await m_socket->send("HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+                    }
                     break;
                 }
             }
@@ -109,6 +110,8 @@ public:
             m_log->error("Exception: {}", e.what());
             // TODO: Anything to send here?!
         }
+        // TODO: Always close connection?
+        m_socket->close();
     }
 
 private:
