@@ -33,6 +33,10 @@ public:
      */
     void run()
     {
+        if (m_outstandingWork == 0) {
+            return;
+        }
+
         while (!isStop()) {
             runOnce();
         }

@@ -12,6 +12,8 @@
 
 #include "awaitable.h"
 #include "non_copyable.h"
+#include "aifs/descriptor.h"
+#include "aifs/event_loop.h"
 
 namespace aifs {
 class TCPSocket : NonCopyable {
