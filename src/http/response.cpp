@@ -1,5 +1,7 @@
 #include "aifs/http/response.h"
 
+#include <sstream>
+
 namespace aifs::http {
 Response::Response(StreamSocket& socket)
     : m_socket{socket}
