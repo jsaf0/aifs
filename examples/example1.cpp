@@ -1,126 +1,96 @@
 
 #include <chrono>
+#include <memory>
 
-#include <fmt/core.h>
+#include <spdlog/spdlog.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <aifs/event_loop.h>
-#include <aifs/task.h>
+#include <aifs/spawn.h>
 #include <aifs/steady_timer.h>
-#include <aifs/tcp_socket.h>
+#include <aifs/task.h>
 #include <aifs/tcp_acceptor.h>
+#include <aifs/tcp_socket.h>
 
 using namespace std::chrono_literals;
 
-#if 0
-template <typename Awaitable>
-void spawn(Awaitable&& awaitable)
-{
-    awaitable.handle_.promise().perform();
-}
+namespace http {
+    class http_connection {
+    public:
+        http_connection(aifs::tcp_socket s)
+            : socket_{std::move(s)} {}
 
-aifs::task<void> echo(aifs::io_context& ctx, aifs::tcp_socket sock)
-{
-    aifs::steady_timer t{ctx, 3000ms};
-    co_await t.async_wait();
-    sock.close();
+        aifs::task<> handle()
+        {
+            spdlog::info("Handle connection from {}:{}", socket_.remote_address(), socket_.remote_port());
+            const std::string resp = "HTTP/1.1 200 OK\r\n\r\n";
+            /*co_await*/ socket_.send(resp);
+            socket_.close();
+            co_return;
+        }
 
-    fmt::print("bye bye conn - {}\n", sock.remote_port());
-    co_return;
-}
-#endif
-
-#include <coroutine>
-
-struct oneway_task
-{
-    struct promise_type
-    {
-        std::suspend_never initial_suspend() const noexcept { return {}; }
-        std::suspend_never final_suspend() const noexcept { return {}; }
-        void unhandled_exception() { std::terminate(); }
-        oneway_task get_return_object() { return {}; }
-        void return_void() {}
+    private:
+        std::shared_ptr<spdlog::logger> log_;
+        aifs::tcp_socket socket_;
     };
-};
 
-template <typename A>
-void do_spawn(A&& a)
-{
-    [](std::decay_t<A> a) -> oneway_task {
-        // TODO: Do something before and after task runs?
-        co_await std::move(a);
-    }(std::forward<A>(a));
+    class http_server {
+    public:
+        http_server(aifs::io_context& ctx)
+            : acceptor_(ctx, 8080)
+        {}
+
+        aifs::task<> start()
+        {
+            try {
+                for (;;) {
+                    aifs::tcp_socket socket = co_await acceptor_.async_accept();
+                    aifs::spawn(handle_connection(std::move(socket)));
+                }
+            } catch (const std::exception& e) {
+                spdlog::error("Got exception while handling connection: {}", e.what());
+            }
+        }
+
+        void stop()
+        {
+            // TODO: Handle stop - cancel connections and acceptor
+            spdlog::info("Stop");
+        }
+
+    private:
+        aifs::task<> handle_connection(aifs::tcp_socket socket)
+        {
+            try {
+                http_connection conn{std::move(socket)};
+                co_await conn.handle();
+            } catch (const std::exception& e) {
+                spdlog::error("Got exception: {}", e.what());
+            }
+        }
+
+    private:
+        aifs::tcp_acceptor acceptor_;
+    };
 }
 
-aifs::task<void> hello2(aifs::io_context& ctx, int j, int i)
+int main()
 {
-    aifs::steady_timer t{ctx, 2000ms + std::chrono::milliseconds{i * 10}};
-    co_await t.async_wait();
-    fmt::print("Hello {}:{}\n", j, i);
-    co_return;
-}
-
-
-aifs::task<void> hello(aifs::io_context& ctx, int j)
-{
-    for (int i = 0; i < 5; ++i) {
-        do_spawn(hello2(ctx, j, i));
-    }
-    aifs::steady_timer t{ctx, 1000ms};
-    co_await t.async_wait();
-    fmt::print("Hello {}\n", j);
-    co_return;
-}
-
-aifs::task<void> long_sleep(aifs::io_context& ctx)
-{
-    aifs::steady_timer t{ctx, 5000ms};
-    co_await t.async_wait();
-}
-
-aifs::task<void> echo(aifs::io_context& ctx, aifs::tcp_socket sock)
-{
-    aifs::steady_timer t{ctx, 100ms};
-    co_await t.async_wait();
-    sock.close();
-
-    fmt::print("bye bye conn - {}\n", sock.remote_port());
-    co_return;
-}
-
-aifs::task<void> listener(aifs::io_context &ctx)
-{
-    try {
-        aifs::tcp_acceptor acceptor{ctx, 22222};
-//        for (;;) {
-//            fmt::print("-- WAIT FOR NEW CONN! --\n");
-            auto s = co_await acceptor.async_accept();
-            fmt::print("Got connection from {}:{}\n", s.remote_address(), s.remote_port());
-            do_spawn(echo(ctx, std::move(s)));
-//        }
-    } catch (const std::exception& e) {
-        fmt::print("Got exception: {}\n", e.what());
-    }
-    fmt::print("done listening for connections\n");
-    co_return;
-}
-
-
-
-int main() {
-    fmt::print("running example1\n");
+    spdlog::info("http_server");
     try {
         aifs::io_context ctx;
 
-        // do_spawn(hello(ctx, 1));
-        // do_spawn(hello(ctx, 2));
-        do_spawn(long_sleep(ctx));
-        do_spawn(listener(ctx));
+        http::http_server server{ctx};
+        aifs::spawn(server.start());
+
+        aifs::spawn([&]() -> aifs::task<> {
+            co_await aifs::steady_timer{ctx, 10s};
+            server.stop();
+        }());
 
         ctx.run();
-        fmt::print("Done\n");
     } catch (const std::exception &e) {
-        fmt::print("Got exception: {}\n", e.what());
+        spdlog::error("Got exception: {}\n", e.what());
     }
     return 0;
 }

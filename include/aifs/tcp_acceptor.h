@@ -9,6 +9,7 @@
 #include "event_loop.h"
 #include "operation.h"
 #include "descriptor.h"
+#include "tcp_socket.h"
 
 namespace aifs {
     class tcp_acceptor {
@@ -74,7 +75,7 @@ namespace aifs {
             }
 
             [[nodiscard]] tcp_socket await_resume() noexcept {
-                fmt::print("accept_op await_resume\n");
+                fmt::print("fd = {}, accept_op await_resume\n", socket_.value().fd_);
                 return std::move(*socket_);
             }
 
@@ -93,7 +94,7 @@ namespace aifs {
                 if (socket < 0) {
                     throw std::system_error(errno, std::generic_category());
                 }
-                fmt::print("got conn = {}:{}\n", inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
+                fmt::print("fd = {}, got conn = {}:{}\n", socket, inet_ntoa(client_addr.sin_addr), ntohs(client_addr.sin_port));
 
                 socket_.emplace(socket);
                 waiting_coroutine_.resume();

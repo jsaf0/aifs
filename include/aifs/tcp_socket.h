@@ -2,6 +2,8 @@
 
 #include <string>
 
+#include <fmt/core.h>
+
 #include "non_copyable.h"
 
 namespace aifs {
@@ -17,7 +19,16 @@ namespace aifs {
             return 0;
         }
 
+        void send(const std::string& resp) {
+            // TODO: Implement asynchronous send/receive!
+            char buf[1024];
+            ::read(fd_, buf, 1024);
+            fmt::print("Got: {}\n", buf);
+            ::write(fd_, resp.data(), resp.size());
+        }
+
         void close() {
+            fmt::print("fd = {}, close\n", fd_);
             ::close(fd_);
         }
 
