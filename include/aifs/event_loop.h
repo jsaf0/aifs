@@ -8,9 +8,12 @@
 #include <thread>
 
 #include <fmt/core.h>
+#include <sys/epoll.h>
 
 #include "non_copyable.h"
 #include "handle.h"
+#include "operation.h"
+#include "descriptor.h"
 
 namespace aifs {
 
@@ -63,9 +66,25 @@ namespace aifs {
             return duration_cast<ms_duration>(now.time_since_epoch()) - start_time_;
         }
 
+        void add_descriptor(descriptor* desc) {
+            fmt::print("add descriptor {}\n", desc->fd_);
+            epoll_event ev{};
+            ev.events = EPOLLIN | EPOLLOUT | EPOLLERR | EPOLLPRI;
+            ev.data.ptr = desc;
+            auto ret = epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, desc->fd_, &ev);
+            if (ret < 0) {
+                throw std::system_error(errno, std::generic_category(), "epoll_ctl");
+            }
+        }
+
+        void add_op(descriptor* desc, int event, operation* op) {
+            desc->ops_[event].push(op);
+            fmt::print("add op ---\n");
+        }
+
     private:
         bool is_stop() {
-            return schedule_.empty();
+            return false; // schedule_.empty();
         }
 
         void run_once() {
@@ -78,9 +97,27 @@ namespace aifs {
             }
 
             // TODO: Replace with call to selector/reactor
-            if (timeout) {
-                std::this_thread::sleep_for(timeout.value());
+            //if (timeout) {
+                // std::this_thread::sleep_for(timeout.value());
+            //}
+
+            epoll_event events[128];
+            int num_events = epoll_wait(epoll_fd_, events, 128, timeout.has_value() ? timeout.value().count() : -1);
+
+            std::queue<operation*> ready;
+            // Generate queue of ready operations.
+            for (int i = 0; i < num_events; ++i) {
+                descriptor* desc = static_cast<descriptor *>(events[i].data.ptr);
+                for (int j = 0; j < 4; ++j) {
+                    if (j & events[i].events && !desc->ops_[j].empty()) {
+                        while (operation* op = desc->ops_[j].front()) {
+                            ready.push(op);
+                            desc->ops_[j].pop();
+                        }
+                    }
+                }
             }
+
 
             // Add all expired timers to the ready queue
             auto now = time();
@@ -89,16 +126,26 @@ namespace aifs {
                 if (when > now) {
                     break;
                 }
-                ready_.push(info);
+                ready.push(info.h);
                 std::ranges::pop_heap(schedule_, std::ranges::greater{}, &timer_handle::first);
                 schedule_.pop_back();
             }
 
+#if 0
             // Run all ready handles
             for (std::size_t todo = ready_.size(), i = 0; i < todo; ++i) {
                 auto [handle_id, handle] = ready_.front();
                 ready_.pop();
                 handle->run();
+            }
+#endif
+
+            // Perform the ready options
+            if (!ready.empty()) {
+                while (operation *op = ready.front()) {
+                    ready.pop();
+                    op->perform();
+                }
             }
         }
 
@@ -106,7 +153,9 @@ namespace aifs {
         selector selector_;
         std::chrono::milliseconds start_time_;
         std::vector<timer_handle> schedule_;
-        std::queue<handle_info> ready_;
+        // std::queue<handle_info> ready_;
+
+        int epoll_fd_;
     };
 
     // Asio-like naming

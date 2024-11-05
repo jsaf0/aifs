@@ -1,10 +1,11 @@
 #pragma once
 
+#include "operation.h"
+
 namespace aifs {
-    struct handle {
+    struct handle : operation {
         handle() noexcept : id_{g_handle_id_++} {}
         virtual ~handle() = default;
-        virtual void run() = 0;
 
         uint64_t id_;
     private:
