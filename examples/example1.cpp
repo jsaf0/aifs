@@ -27,26 +27,6 @@ aifs::task<void> echo(aifs::io_context& ctx, aifs::tcp_socket sock)
     fmt::print("bye bye conn - {}\n", sock.remote_port());
     co_return;
 }
-
-aifs::task<void> listener(aifs::io_context &ctx)
-{
-    try {
-        aifs::tcp_acceptor acceptor{ctx, 22222};
-        for (;;) {
-            fmt::print("-- WAIT FOR NEW CONN! --\n");
-            auto s = co_await acceptor.async_accept();
-            fmt::print("Got connection from {}:{}\n", s.remote_address(), s.remote_port());
-            // co_await echo(ctx, std::move(s));
-
-            spawn(echo(ctx, std::move(s)));
-
-
-        }
-    } catch (const std::exception& e) {
-        fmt::print("Got exception: {}\n", e.what());
-    }
-    co_return;
-}
 #endif
 
 #include <coroutine>
@@ -63,23 +43,18 @@ struct oneway_task
     };
 };
 
-static int in_progress = 0;
-
 template <typename A>
 void do_spawn(A&& a)
 {
     [](std::decay_t<A> a) -> oneway_task {
-        fmt::print("before\n");
-        in_progress++;
+        // TODO: Do something before and after task runs?
         co_await std::move(a);
-        in_progress--;
-        fmt::print("after {}\n", in_progress);
     }(std::forward<A>(a));
 }
 
 aifs::task<void> hello2(aifs::io_context& ctx, int j, int i)
 {
-    aifs::steady_timer t{ctx, 1000ms + std::chrono::milliseconds{i * 10}};
+    aifs::steady_timer t{ctx, 2000ms + std::chrono::milliseconds{i * 10}};
     co_await t.async_wait();
     fmt::print("Hello {}:{}\n", j, i);
     co_return;
@@ -97,17 +72,50 @@ aifs::task<void> hello(aifs::io_context& ctx, int j)
     co_return;
 }
 
+aifs::task<void> long_sleep(aifs::io_context& ctx)
+{
+    aifs::steady_timer t{ctx, 5000ms};
+    co_await t.async_wait();
+}
+
+aifs::task<void> echo(aifs::io_context& ctx, aifs::tcp_socket sock)
+{
+    aifs::steady_timer t{ctx, 100ms};
+    co_await t.async_wait();
+    sock.close();
+
+    fmt::print("bye bye conn - {}\n", sock.remote_port());
+    co_return;
+}
+
+aifs::task<void> listener(aifs::io_context &ctx)
+{
+    try {
+        aifs::tcp_acceptor acceptor{ctx, 22222};
+//        for (;;) {
+//            fmt::print("-- WAIT FOR NEW CONN! --\n");
+            auto s = co_await acceptor.async_accept();
+            fmt::print("Got connection from {}:{}\n", s.remote_address(), s.remote_port());
+            do_spawn(echo(ctx, std::move(s)));
+//        }
+    } catch (const std::exception& e) {
+        fmt::print("Got exception: {}\n", e.what());
+    }
+    fmt::print("done listening for connections\n");
+    co_return;
+}
+
+
+
 int main() {
     fmt::print("running example1\n");
     try {
         aifs::io_context ctx;
 
-        // TODO: Simple way of spawning a task deferred (instead of co_spawn-like interface)
-//        auto listener_task = listener(ctx);
-//        ctx.call_later(0ms, listener_task.handle_.promise());
-
-        do_spawn(hello(ctx, 1));
-        do_spawn(hello(ctx, 2));
+        // do_spawn(hello(ctx, 1));
+        // do_spawn(hello(ctx, 2));
+        do_spawn(long_sleep(ctx));
+        do_spawn(listener(ctx));
 
         ctx.run();
         fmt::print("Done\n");

@@ -81,7 +81,7 @@ namespace aifs {
             void await_suspend(std::coroutine_handle<> h) noexcept {
                 fmt::print("accept_op await_suspend\n");
                 waiting_coroutine_ = h;
-                acceptor_->ctx_.add_op(&acceptor_->d_, EPOLLIN, this);
+                acceptor_->ctx_.add_op(&acceptor_->d_, event_loop::op_type::READ_OP, this);
             }
 
             void perform() override {

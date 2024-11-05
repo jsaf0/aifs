@@ -30,7 +30,8 @@ namespace aifs {
     class event_loop : private non_copyable {
     public:
         using ms_duration = std::chrono::milliseconds;
-        using timer_handle = std::pair<ms_duration, handle_info>;
+        using timer_handle = std::pair<ms_duration, operation*>;
+        enum op_type { READ_OP = 0, WRITE_OP = 1, PRI_OP = 2, MAX_OP = 3 };
 
     public:
         event_loop();
@@ -46,16 +47,20 @@ namespace aifs {
 
         /**
          * Add a handle/callback to be called in a later point in time.
-         *
-         * @param when Offset in time (ms) from now
-         * @param handle The handle to run/call
          */
-        void call_later(ms_duration when, handle& callback) {
-            fmt::print("call handle {} at {}\n", callback.id_, when.count());
+        void call_later(ms_duration when, operation* op) {
             // Add the handle to the schedule, and the sort the schedule to have to earliest
             // expiring timer as the first entry.
-            schedule_.emplace_back(time() + when, handle_info{callback.id_, &callback});
+            schedule_.emplace_back(time() + when, op);
             std::ranges::push_heap(schedule_, std::ranges::greater{}, &timer_handle::first);
+        }
+
+        void dispatch(operation* op) {
+            throw std::runtime_error("Not implemented");
+        }
+
+        void cancel_delayed_op(operation* op) {
+            throw std::runtime_error("Not implemented");
         }
 
         /**
@@ -77,9 +82,11 @@ namespace aifs {
             }
         }
 
-        void add_op(descriptor* desc, int event, operation* op) {
-            desc->ops_[event].push(op);
-            fmt::print("add op ---\n");
+        void add_op(descriptor* desc, op_type t, operation* op) {
+            if (desc->ops_[t] != nullptr) {
+                throw std::runtime_error("An operation is already registered for this event\n");
+            }
+            desc->ops_[t] = op;
         }
 
     private:
@@ -96,64 +103,48 @@ namespace aifs {
                 timeout = std::max(when - time(), std::chrono::milliseconds{0});
             }
 
-            // TODO: Replace with call to selector/reactor
-            if (timeout) {
-                 std::this_thread::sleep_for(timeout.value());
-            }
-
             epoll_event events[128];
-            int num_events = 0; //epoll_wait(epoll_fd_, events, 128, timeout.has_value() ? timeout.value().count() : -1);
+            int num_events = epoll_wait(epoll_fd_, events, 128, timeout.has_value() ? timeout.value().count() : -1);
 
-            std::queue<operation*> ready;
-            // Generate queue of ready operations.
+            // Translation between op_type and epoll event type.
+            static const int epoll_flag[] = { EPOLLIN, EPOLLOUT, EPOLLPRI };
+
+            // Generate queue of ready_ operations.
             for (int i = 0; i < num_events; ++i) {
                 descriptor* desc = static_cast<descriptor *>(events[i].data.ptr);
-                for (int j = 0; j < 4; ++j) {
-                    if (j & events[i].events && !desc->ops_[j].empty()) {
-                        while (operation* op = desc->ops_[j].front()) {
-                            ready.push(op);
-                            desc->ops_[j].pop();
-                        }
+                for (int j = 0; j < op_type::MAX_OP; ++j) {
+                    if (desc->ops_[j] && events[i].events & (epoll_flag[j] | EPOLLERR | EPOLLHUP)) {
+                        ready_.push(desc->ops_[j]);
+                        desc->ops_[j] = nullptr;
                     }
                 }
             }
 
-
-            // Add all expired timers to the ready queue
+            // Add all expired timers to the ready_ queue
             auto now = time();
             while (!schedule_.empty()) {
-                auto&& [when, info] = schedule_[0];
+                auto&& [when, op] = schedule_[0];
                 if (when > now) {
                     break;
                 }
-                ready.push(info.h);
+                ready_.push(op);
                 std::ranges::pop_heap(schedule_, std::ranges::greater{}, &timer_handle::first);
                 schedule_.pop_back();
             }
 
-
-            // Run all ready handles
-            for (std::size_t todo = ready.size(), i = 0; i < todo; ++i) {
-                auto op = ready.front();
-                ready.pop();
+            // Run all ready_ handles
+            while (!ready_.empty()) {
+                auto op = ready_.front();
+                ready_.pop();
                 op->perform();
             }
-
-//            // Perform the ready options
-//            if (!ready.empty()) {
-//                while (operation *op = ready.front()) {
-//                    ready.pop();
-//                    op->perform();
-//                }
-//            }
         }
 
     private:
         selector selector_;
         std::chrono::milliseconds start_time_;
         std::vector<timer_handle> schedule_;
-        // std::queue<handle_info> ready_;
-
+        std::queue<operation*> ready_;
         int epoll_fd_;
     };
 
