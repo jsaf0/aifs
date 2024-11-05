@@ -6,7 +6,6 @@
 #include <spdlog/sinks/stdout_color_sinks.h>
 
 #include <aifs/event_loop.h>
-#include <aifs/spawn.h>
 #include <aifs/steady_timer.h>
 #include <aifs/task.h>
 #include <aifs/tcp_acceptor.h>
@@ -36,21 +35,24 @@ namespace http {
 
     class http_server {
     public:
-        http_server(aifs::io_context& ctx)
-            : acceptor_(ctx, 8080)
+        http_server(aifs::event_loop& ev)
+            : ev_{ev}
+            , acceptor_(ev, 8080)
         {}
 
         aifs::task<> start()
         {
             aifs::acceptor<aifs::tcp_socket>& acceptor = acceptor_;
             try {
-                for (;;) {
+                // XXX: Stop after handling two connections!
+                for (int i = 0; i < 2; ++i) {
                     auto socket = co_await acceptor.async_accept();
-                    aifs::spawn(handle_connection(std::move(socket)));
+                    ev_.spawn(handle_connection(std::move(socket)));
                 }
             } catch (const std::exception& e) {
                 spdlog::error("Got exception while handling connection: {}", e.what());
             }
+            spdlog::warn("Done");
         }
 
         void stop()
@@ -71,6 +73,7 @@ namespace http {
         }
 
     private:
+        aifs::event_loop& ev_;
         aifs::tcp_acceptor acceptor_;
     };
 }
@@ -79,17 +82,17 @@ int main()
 {
     spdlog::info("http_server");
     try {
-        aifs::io_context ctx;
+        aifs::event_loop ev;
 
-        http::http_server server{ctx};
-        aifs::spawn(server.start());
+        http::http_server server{ev};
+        ev.spawn(server.start());
 
-        aifs::spawn([&]() -> aifs::task<> {
-            co_await aifs::steady_timer{ctx, 10s};
-            server.stop();
+        ev.spawn([&]() -> aifs::task<> {
+            co_await aifs::steady_timer{ev, 1s};
+            spdlog::info("Timer expired");
         }());
 
-        ctx.run();
+        ev.run();
     } catch (const std::exception &e) {
         spdlog::error("Got exception ({}): {}\n", __func__, e.what());
     }

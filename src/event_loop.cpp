@@ -4,16 +4,48 @@
 #include <sys/select.h>
 
 namespace aifs {
+    namespace detail {
+        template<typename Duration>
+        void to_timeval(Duration&& d, struct timeval & tv) {
+            std::chrono::seconds const sec = std::chrono::duration_cast<std::chrono::seconds>(d);
+            tv.tv_sec  = sec.count();
+            tv.tv_usec = std::chrono::duration_cast<std::chrono::microseconds>(d - sec).count();
+        }
+
+        struct oneway_task {
+            struct promise_type {
+                std::suspend_never initial_suspend() const noexcept { return {}; }
+                std::suspend_never final_suspend() const noexcept { return {}; }
+                void unhandled_exception() { std::terminate(); }
+                oneway_task get_return_object() { return {}; }
+                void return_void() {}
+            };
+        };
+    }
+
     event_loop::event_loop()
-        : start_time_{}
+        : stopped_{false}
+        , start_time_{}
+        , outstanding_work_{0}
     {
         auto now = std::chrono::steady_clock::now();
         start_time_ = duration_cast<ms_duration>(now.time_since_epoch());
     }
 
+    event_loop::~event_loop() = default;
+
     bool event_loop::is_stop()
     {
-        return schedule_.empty();
+        return stopped_;
+    }
+
+    void event_loop::spawn(task<> t)
+    {
+        [](task<> t, event_loop* self) -> detail::oneway_task {
+            self->work_started();
+            co_await std::move(t);
+            self->work_finished();
+        }(std::move(t), this);
     }
 
     void event_loop::run_once()
@@ -39,9 +71,14 @@ namespace aifs {
             }
         }
 
-        // TODO: Calculate correct timeout!
-        struct timeval to = { 5, 0 };
-        int num_events = ::select(max_fd + 1, &fd_sets[0], &fd_sets[1], &fd_sets[2], &to);
+        struct timeval to = { 0, 0 };
+        struct timeval *tv = nullptr;
+        if (timeout) {
+            detail::to_timeval(*timeout, to);
+            tv = &to;
+        }
+
+        int num_events = ::select(max_fd + 1, &fd_sets[0], &fd_sets[1], &fd_sets[2], tv);
         if (num_events > 0) {
             // Add all ready operations to the ready queue and remove from queue of pending operations
             for (int i = 0; i < MAX_OP; ++i) {
@@ -74,6 +111,7 @@ namespace aifs {
             auto op = ready_.front();
             ready_.pop();
             op->perform();
+            work_finished();
         }
     }
 }

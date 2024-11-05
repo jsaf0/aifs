@@ -4,6 +4,8 @@
 #include <variant>
 #include <utility>
 
+#include "non_copyable.h"
+
 namespace aifs {
     template <typename T>
     struct Result {
@@ -69,8 +71,8 @@ namespace aifs {
                 return true;
             }
 
-            auto await_suspend(std::coroutine_handle<> resumer) const noexcept {
-                self_.promise().continuation_ = resumer;
+            auto await_suspend(std::coroutine_handle<> h) const noexcept {
+                self_.promise().continuation_ = h;
                 return self_;
             }
 
