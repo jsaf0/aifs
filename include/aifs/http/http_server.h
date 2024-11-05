@@ -4,15 +4,17 @@
 
 #include "aifs/event_loop.h"
 #include "aifs/http/http_connection.h"
+#include "aifs/http/router.h"
 #include "aifs/task.h"
 #include "aifs/tcp_acceptor.h"
 
 namespace aifs::http {
 class HTTPServer {
 public:
-    explicit HTTPServer(EventLoop& ev, Acceptor<TCPSocket>& acceptor)
+    explicit HTTPServer(EventLoop& ev, Acceptor<TCPSocket>& acceptor, Router& router)
         : m_eventLoop { ev }
         , m_acceptor { acceptor }
+        , m_router { router }
     {
     }
 
@@ -34,7 +36,7 @@ private:
     Task<> handleConnection(Acceptor<TCPSocket>::SocketPtr socket)
     {
         try {
-            HTTPConnection conn { m_eventLoop, std::move(socket) };
+            HTTPConnection conn { m_eventLoop, m_router, std::move(socket) };
             co_await conn.handle();
         } catch (const std::exception& e) {
             spdlog::error("Got exception ({}): {}", __func__, e.what());
@@ -44,5 +46,6 @@ private:
 private:
     EventLoop& m_eventLoop;
     Acceptor<TCPSocket>& m_acceptor;
+    Router& m_router;
 };
 } // namespace aifs::http

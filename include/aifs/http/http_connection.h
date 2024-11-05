@@ -6,6 +6,8 @@
 #include <string>
 
 #include "aifs/event_loop.h"
+#include "aifs/http/router.h"
+#include "aifs/http/response.h"
 #include "aifs/log.h"
 #include "aifs/steady_timer.h"
 #include "aifs/task.h"
@@ -18,6 +20,7 @@ public:
     {
         m_parser_settings.on_message_complete = [](http_parser* p) {
             RequestParser* self = reinterpret_cast<RequestParser*>(p->data);
+            self->m_method = p->method;
             self->m_complete = true;
             return 0;
         };
@@ -59,6 +62,7 @@ public:
 
 public:
     bool m_complete { false };
+    unsigned m_method {};
     std::string m_url {};
     std::string m_body {};
     std::map<std::string, std::string> m_headers {};
@@ -71,9 +75,9 @@ private:
 
 class HTTPConnection {
 public:
-    HTTPConnection(EventLoop& ev, std::unique_ptr<TCPSocket> socket)
+    HTTPConnection(EventLoop&, Router& router, std::unique_ptr<TCPSocket> socket)
         : m_log { makeLogger("conn:" + std::to_string(socket->remote_port())) }
-        , m_eventLoop { ev }
+        , m_router { router }
         , m_socket { std::move(socket) }
         , m_parser {}
     {
@@ -87,30 +91,29 @@ public:
                 ssize_t received = co_await m_socket->receive(buffer);
                 auto res = m_parser.consume({ buffer.data(), static_cast<std::size_t>(received) });
                 if (res != HPE_OK && res != HPE_PAUSED) {
-                    m_log->warn("parsing failed");
+                    m_log->warn("Parsing failed {}", res);
+                    // TODO: What do send if the request is invalid?
                     break;
                 }
                 if (m_parser.m_complete) {
                     m_log->info("Got request for {}", m_parser.m_url);
-                    for (const auto& [f, v] : m_parser.m_headers) {
-                        m_log->info("Header: {} = {}", f, v);
-                    }
-                    m_log->info("Body: {}", m_parser.m_body);
+                    Request req { m_parser.m_method, m_parser.m_url };
+                    Response resp{*m_socket};
+                    // TODO: Check if router actually did handle the request and sent a response.
+                    // TODO: Where should the 404 be sent from?
+                    co_await m_router.handle(req, resp);
                     break;
                 }
             }
-
-            m_log->warn("Reply with 200 OK");
-            co_await m_socket->send("HTTP/1.1 200 OK\r\n\r\n");
-            m_socket->close();
         } catch (const std::exception& e) {
             m_log->error("Exception: {}", e.what());
+            // TODO: Anything to send here?!
         }
     }
 
 private:
     Logger m_log;
-    EventLoop& m_eventLoop;
+    Router& m_router;
     std::unique_ptr<TCPSocket> m_socket;
     RequestParser m_parser;
 };

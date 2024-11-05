@@ -3,6 +3,7 @@
 #include <coroutine>
 #include <utility>
 #include <variant>
+#include <exception>
 
 #include "non_copyable.h"
 
