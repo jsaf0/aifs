@@ -41,7 +41,7 @@ namespace aifs {
                 self_->ctx_.call_later(self_->when_, this);
             }
 
-            void perform() {
+            void perform(const std::error_code&) {
                 if (continuation_) {
                     continuation_.resume();
                 }

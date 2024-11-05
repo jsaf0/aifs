@@ -13,7 +13,7 @@ namespace aifs {
     private:
         struct awaitable_concept {
             virtual ~awaitable_concept() = default;
-            virtual T await_resume() noexcept = 0;
+            virtual T await_resume() = 0;
             virtual void await_suspend(std::coroutine_handle<>) noexcept = 0;
         };
 
@@ -22,7 +22,7 @@ namespace aifs {
             model(Impl&& i) : impl_{std::move(i)}
             {}
 
-            T await_resume() noexcept override {
+            T await_resume() override {
                 return impl_.await_resume();
             }
 
@@ -43,7 +43,7 @@ namespace aifs {
             return false;
         }
 
-        [[nodiscard]] T await_resume() noexcept {
+        [[nodiscard]] T await_resume() {
             return impl_->await_resume();
         }
 

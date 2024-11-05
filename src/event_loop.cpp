@@ -34,7 +34,7 @@ namespace aifs {
 
     event_loop::~event_loop() = default;
 
-    bool event_loop::is_stop()
+    bool event_loop::is_stop() const
     {
         return stopped_;
     }
@@ -60,8 +60,8 @@ namespace aifs {
 
         // Build the fd_sets based on pending operations.
         int max_fd = -1;
-        fd_set fd_sets[MAX_OP];
-        for (int i = 0; i < MAX_OP; ++i) {
+        fd_set fd_sets[max_op];
+        for (int i = 0; i < max_op; ++i) {
             FD_ZERO(&fd_sets[i]);
             for (const auto& [desc, op] : pending_ops_[i]) {
                 FD_SET(desc->fd, &fd_sets[i]);
@@ -81,7 +81,7 @@ namespace aifs {
         int num_events = ::select(max_fd + 1, &fd_sets[0], &fd_sets[1], &fd_sets[2], tv);
         if (num_events > 0) {
             // Add all ready operations to the ready queue and remove from queue of pending operations
-            for (int i = 0; i < MAX_OP; ++i) {
+            for (int i = 0; i < max_op; ++i) {
                 auto it = pending_ops_[i].begin();
                 while (it != pending_ops_[i].end()) {
                     if (FD_ISSET(it->first->fd, &fd_sets[i]) != 0) {
@@ -110,7 +110,7 @@ namespace aifs {
         while (!ready_.empty()) {
             auto op = ready_.front();
             ready_.pop();
-            op->perform();
+            op->perform(op->ec);
             work_finished();
         }
     }
