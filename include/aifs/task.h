@@ -44,13 +44,25 @@ namespace aifs {
         template<typename Fut>
         friend struct scheduled_task;
 
-        explicit task(coro_handle h) noexcept : handle_(h) {fmt::print("task ctor1\n");}
-        task(task&& other) noexcept : handle_{std::exchange(other.handle_, {})} {
-            fmt::print("task ctor\n");
+        task() noexcept
+            : handle_{nullptr}
+        {
+        }
+
+        explicit task(coro_handle h) noexcept
+            : handle_(h)
+        {
+        }
+
+        task(task&& other) noexcept
+            : handle_{std::exchange(other.handle_, {})}
+        {
         }
 
         ~task() {
-            fmt::print("task dtor\n");
+            if (handle_) {
+                handle_.destroy();
+            }
         }
 
         struct awaitable_base {
@@ -61,9 +73,8 @@ namespace aifs {
                 return true;
             }
 
-            template <typename Promise>
-            auto await_suspend(std::coroutine_handle<Promise> resumer) const noexcept {
-                self_.promise().continuation_ = &resumer.promise();
+            auto await_suspend(std::coroutine_handle<> resumer) const noexcept {
+                self_.promise().continuation_ = resumer;
                 return self_;
             }
 
@@ -93,7 +104,7 @@ namespace aifs {
                 template <typename Promise>
                 constexpr void await_suspend(std::coroutine_handle<Promise> h) const noexcept {
                     if (auto cont = h.promise().continuation_) {
-                        cont->perform();
+                        cont.resume();
                     }
                 }
                 constexpr void await_resume() const noexcept {}
@@ -109,7 +120,7 @@ namespace aifs {
                 coro_handle::from_promise(*this).resume();
             }
 
-            handle* continuation_{};
+            std::coroutine_handle<> continuation_;
         };
 
 

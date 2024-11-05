@@ -11,6 +11,7 @@
 
 using namespace std::chrono_literals;
 
+#if 0
 template <typename Awaitable>
 void spawn(Awaitable&& awaitable)
 {
@@ -46,14 +47,67 @@ aifs::task<void> listener(aifs::io_context &ctx)
     }
     co_return;
 }
+#endif
+
+#include <coroutine>
+
+struct oneway_task
+{
+    struct promise_type
+    {
+        std::suspend_never initial_suspend() const noexcept { return {}; }
+        std::suspend_never final_suspend() const noexcept { return {}; }
+        void unhandled_exception() { std::terminate(); }
+        oneway_task get_return_object() { return {}; }
+        void return_void() {}
+    };
+};
+
+static int in_progress = 0;
+
+template <typename A>
+void do_spawn(A&& a)
+{
+    [](std::decay_t<A> a) -> oneway_task {
+        fmt::print("before\n");
+        in_progress++;
+        co_await std::move(a);
+        in_progress--;
+        fmt::print("after {}\n", in_progress);
+    }(std::forward<A>(a));
+}
+
+aifs::task<void> hello2(aifs::io_context& ctx, int j, int i)
+{
+    aifs::steady_timer t{ctx, 1000ms + std::chrono::milliseconds{i * 10}};
+    co_await t.async_wait();
+    fmt::print("Hello {}:{}\n", j, i);
+    co_return;
+}
+
+
+aifs::task<void> hello(aifs::io_context& ctx, int j)
+{
+    for (int i = 0; i < 5; ++i) {
+        do_spawn(hello2(ctx, j, i));
+    }
+    aifs::steady_timer t{ctx, 1000ms};
+    co_await t.async_wait();
+    fmt::print("Hello {}\n", j);
+    co_return;
+}
 
 int main() {
+    fmt::print("running example1\n");
     try {
         aifs::io_context ctx;
 
         // TODO: Simple way of spawning a task deferred (instead of co_spawn-like interface)
-        auto listener_task = listener(ctx);
-        ctx.call_later(0ms, listener_task.handle_.promise());
+//        auto listener_task = listener(ctx);
+//        ctx.call_later(0ms, listener_task.handle_.promise());
+
+        do_spawn(hello(ctx, 1));
+        do_spawn(hello(ctx, 2));
 
         ctx.run();
         fmt::print("Done\n");
