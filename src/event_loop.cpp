@@ -50,6 +50,7 @@ namespace aifs {
 
     void event_loop::run_once()
     {
+        spdlog::info("run_once");
         // If we have any waiting timers, the max timeout of the select operation
         // should be the time until the first timer expires.
         std::optional<ms_duration> timeout;

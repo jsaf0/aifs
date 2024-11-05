@@ -18,8 +18,11 @@ namespace aifs {
     template <typename Socket>
     class acceptor {
     public:
+        using socket_ptr = std::unique_ptr<Socket>;
+    public:
         virtual ~acceptor() = default;
-        virtual awaitable<Socket> async_accept() = 0;
+        virtual void cancel() = 0;
+        virtual awaitable<socket_ptr> accept() = 0;
     };
 
     class tcp_acceptor : public acceptor<tcp_socket> {
@@ -67,17 +70,17 @@ namespace aifs {
             }
         }
 
-        void cancel()
+        void cancel() override
         {
             ev_.cancel_operation(&desc_, event_loop::op_type::read_op);
         }
 
-        [[nodiscard]] awaitable<tcp_socket> async_accept() override
+        [[nodiscard]] awaitable<socket_ptr> accept() override
         {
             if (desc_.fd == -1) {
                 throw std::runtime_error("Not ready to accept");
             }
-            return awaitable<tcp_socket>{accept_op{this}};
+            return awaitable<socket_ptr>{accept_op{this}};
         }
 
     private:
@@ -85,12 +88,12 @@ namespace aifs {
             explicit accept_op(tcp_acceptor* acceptor) : acceptor_{acceptor}
             { }
 
-            tcp_socket await_resume()
+            socket_ptr await_resume()
             {
                 if (auto ec = std::get_if<std::error_code>(&result_)) {
                     throw std::system_error(*ec);
                 }
-                return std::move(std::get<tcp_socket>(result_));
+                return std::move(std::get<socket_ptr>(result_));
             }
 
             void await_suspend(std::coroutine_handle<> h)
@@ -114,13 +117,13 @@ namespace aifs {
                 if (fd < 0) {
                     result_ = std::make_error_code(static_cast<std::errc>(errno));
                 } else {
-                    result_.emplace<tcp_socket>(acceptor_->ev_, fd, client_addr);
+                    result_.emplace<socket_ptr>(std::make_unique<tcp_socket>(acceptor_->ev_, fd, client_addr));
                 }
                 waiter_.resume();
             }
 
             tcp_acceptor* acceptor_;
-            std::variant<std::monostate, std::error_code, tcp_socket> result_;
+            std::variant<std::monostate, std::error_code, socket_ptr> result_;
             std::coroutine_handle<> waiter_;
         };
 

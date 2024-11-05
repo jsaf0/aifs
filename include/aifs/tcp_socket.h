@@ -36,12 +36,12 @@ namespace aifs {
             return ntohs(addr_.sin_port);
         }
 
-        [[nodiscard]] awaitable<ssize_t> async_receive(std::span<char> buffer)
+        [[nodiscard]] awaitable<ssize_t> receive(std::span<char> buffer)
         {
             return awaitable<int>{async_receive_op{*this, buffer}};
         }
 
-        [[nodiscard]] awaitable<ssize_t> async_send(std::span<const char> buffer)
+        [[nodiscard]] awaitable<ssize_t> send(std::span<const char> buffer)
         {
             return awaitable<int>{async_send_op{*this, buffer}};
         }
@@ -77,8 +77,11 @@ namespace aifs {
                 }
 
                 ssize_t n = ::read(socket_.desc_.fd, buffer_.data(), buffer_.size());
+                spdlog::warn("read = {}", n);
                 if (n > 0) {
                     result_ = n;
+                } else if (n == 0) {
+                    result_ = std::make_error_code(std::errc::connection_aborted);
                 } else {
                     result_ = std::make_error_code(static_cast<std::errc>(errno));
                 }
