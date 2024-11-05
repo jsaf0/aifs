@@ -64,7 +64,6 @@ int main()
             co_await r.send("Hello, world");
         }());
 #endif
-
         TCPAcceptor acceptor { ev, 8080 };
         HTTPServer server { ev, acceptor, router };
         ev.spawn(server.start());

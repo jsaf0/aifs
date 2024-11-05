@@ -4,9 +4,9 @@ project(aifs)
 
 list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}")
 
-find_package(fmt 9.1.0 REQUIRED)
-find_package(spdlog 1.11.0 REQUIRED)
-find_package(http_parser 2.9.4 REQUIRED)
+find_package(fmt)
+find_package(spdlog)
+find_package(http_parser)
 
 add_library(aifs STATIC src/event_loop.cpp src/http/response.cpp)
 target_include_directories(aifs PUBLIC include)

@@ -1,18 +1,17 @@
 #!/bin/bash
 
-# For macOS, set CC and CXX to gcc-12 and g++-12 respectively.
-# Also remember to update the default Conan profile.
+set -e
+
+if conan --version | grep -v "Conan version 2."; then
+	echo "Needs Conan 2.x"
+	exit 1
+fi
 
 if [ -d ./build ]; then
 	rm -rf build
 fi
 
-EXTRA_OPTS=""
-if [[ "$OSTYPE" == "darwin"* ]]; then
-	EXTRA_OPTS="-DCMAKE_C_COMPILER=gcc-12 -DCMAKE_CXX_COMPILER=g++-12"
-fi
+conan install . --output-folder=build -pr:b=default --build=missing -s build_type=Debug
 
-mkdir build && cd build
-conan install .. -pr:b=default --build=missing -s build_type=Debug
-cmake .. -GNinja -DCMAKE_BUILD_TYPE=Debug ${EXTRA_OPTS}
-ninja
+cmake --preset conan-debug
+cmake --build --preset conan-debug

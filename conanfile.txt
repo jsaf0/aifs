@@ -1,7 +1,8 @@
 [requires]
-fmt/9.1.0
+fmt/10.0.0
 spdlog/1.11.0
 http_parser/2.9.4
 
 [generators]
 CMakeDeps
+CMakeToolchain
