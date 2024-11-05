@@ -1,20 +1,27 @@
 #pragma once
 
+#include "awaitable.h"
 #include "event_loop.h"
 #include "task.h"
 
 namespace aifs {
-    class steady_timer {
+    class timer {
+    public:
+        virtual ~timer() = default;
+        [[nodiscard]] virtual awaitable<> async_wait() = 0;
+    };
+
+    class steady_timer : public timer {
     private:
-        struct awaitable;
+        struct timer_op;
 
     public:
         steady_timer(io_context& ctx, std::chrono::milliseconds when)
             : ctx_{ctx}, when_{std::move(when)} {
         }
 
-        auto async_wait() {
-            return awaitable{this};
+        [[nodiscard]] awaitable<> async_wait() {
+            return awaitable<>{timer_op{this}};
         }
 
         auto operator co_await () noexcept {
@@ -22,15 +29,13 @@ namespace aifs {
         }
 
     private:
-        struct awaitable : operation {
-            awaitable(steady_timer* self)
+        struct timer_op : operation {
+            timer_op(steady_timer* self)
                 : self_{self}, continuation_{nullptr} {}
 
-            constexpr bool await_ready() const noexcept {
-                return false;
+            void await_resume() const noexcept {
             }
-            constexpr void await_resume() const noexcept {
-            }
+
             void await_suspend(std::coroutine_handle<> h) noexcept {
                 continuation_ = h;
                 self_->ctx_.call_later(self_->when_, this);
