@@ -1,129 +1,129 @@
 #pragma once
 
 #include <coroutine>
-#include <variant>
 #include <utility>
+#include <variant>
 
 #include "non_copyable.h"
 
 namespace aifs {
-    template <typename T>
-    struct Result {
-        template <typename R>
-        constexpr void return_value(R&& value) noexcept {
-            result_.template emplace<T>(std::forward<R>(value));
-        }
+template <typename T>
+struct Result {
+    template <typename R>
+    constexpr void return_value(R&& value) noexcept
+    {
+        m_result.template emplace<T>(std::forward<R>(value));
+    }
 
-        constexpr T result() {
-            if (auto res = std::get_if<T>(&result_)) {
-                return *res;
+    constexpr T result()
+    {
+        if (auto res = std::get_if<T>(&m_result)) {
+            return *res;
+        }
+        return T { -1 };
+    }
+
+    std::variant<std::monostate, T, std::exception_ptr> m_result;
+};
+
+template <>
+struct Result<void> {
+    void return_void() noexcept { }
+    void result() { }
+};
+
+template <typename ReturnType = void>
+struct Task : private NonCopyable {
+    struct Promise;
+    using promise_type = Promise;
+    using CoroHandle = std::coroutine_handle<promise_type>;
+
+    template <typename Fut>
+    friend struct scheduled_task;
+
+    Task() noexcept
+        : m_handle { nullptr }
+    {
+    }
+
+    explicit Task(CoroHandle h) noexcept
+        : m_handle(h)
+    {
+    }
+
+    Task(Task&& other) noexcept
+        : m_handle { std::exchange(other.m_handle, {}) }
+    {
+    }
+
+    ~Task()
+    {
+        if (m_handle) {
+            m_handle.destroy();
+        }
+    }
+
+    struct AwaitableBase {
+        constexpr bool await_ready()
+        {
+            if (m_self) {
+                return m_self.done();
             }
-            return T{-1};
+            return true;
         }
 
-        std::variant<std::monostate, T, std::exception_ptr> result_;
+        auto await_suspend(std::coroutine_handle<> h) const noexcept
+        {
+            m_self.promise().m_continuation = h;
+            return m_self;
+        }
+
+        CoroHandle m_self;
     };
 
-    template <>
-    struct Result<void> {
-        void return_void() noexcept {
-        }
-
-        void result() {}
-    };
-
-    template <typename ReturnType = void>
-    struct task : private non_copyable {
-
-        struct promise;
-        using promise_type = promise;
-        using coro_handle = std::coroutine_handle<promise_type>;
-
-        template<typename Fut>
-        friend struct scheduled_task;
-
-        task() noexcept
-            : handle_{nullptr}
-        {
-        }
-
-        explicit task(coro_handle h) noexcept
-            : handle_(h)
-        {
-        }
-
-        task(task&& other) noexcept
-            : handle_{std::exchange(other.handle_, {})}
-        {
-        }
-
-        ~task() {
-            if (handle_) {
-                handle_.destroy();
+    auto operator co_await() const noexcept
+    {
+        struct Awaiter : AwaitableBase {
+            auto await_resume() const
+            {
+                return AwaitableBase::m_self.promise().result();
             }
+        };
+        return Awaiter { m_handle };
+    }
+
+    struct Promise : Result<ReturnType> {
+        Task get_return_object()
+        {
+            return Task { CoroHandle::from_promise(*this) };
         }
 
-        struct awaitable_base {
-            constexpr bool await_ready() {
-                if (self_) {
-                    return self_.done();
+        auto initial_suspend() noexcept { return std::suspend_always {}; }
+
+        struct FinalAwaiter {
+            constexpr bool await_ready() const noexcept { return false; }
+            template <typename Promise>
+            constexpr void await_suspend(
+                std::coroutine_handle<Promise> h) const noexcept
+            {
+                if (auto cont = h.promise().m_continuation) {
+                    cont.resume();
                 }
-                return true;
             }
-
-            auto await_suspend(std::coroutine_handle<> h) const noexcept {
-                self_.promise().continuation_ = h;
-                return self_;
-            }
-
-            coro_handle self_;
+            constexpr void await_resume() const noexcept { }
         };
 
-        auto operator co_await () const noexcept {
-            struct awaiter : awaitable_base {
-                auto await_resume() const {
-                    return awaitable_base::self_.promise().result();
-                }
-            };
-            return awaiter{handle_};
-        }
+        auto final_suspend() noexcept { return FinalAwaiter {}; }
 
-        struct promise : Result<ReturnType> {
-            task get_return_object() {
-                return task{coro_handle::from_promise(*this)};
-            }
+        void unhandled_exception() { }
 
-            auto initial_suspend() noexcept {
-                return std::suspend_always{};
-            }
+        void perform() { CoroHandle::from_promise(*this).resume(); }
 
-            struct final_awaiter {
-                constexpr bool await_ready() const noexcept { return false; }
-                template <typename Promise>
-                constexpr void await_suspend(std::coroutine_handle<Promise> h) const noexcept {
-                    if (auto cont = h.promise().continuation_) {
-                        cont.resume();
-                    }
-                }
-                constexpr void await_resume() const noexcept {}
-            };
-
-            auto final_suspend() noexcept {
-                return final_awaiter{};
-            }
-
-            void unhandled_exception() {}
-
-            void perform() {
-                coro_handle::from_promise(*this).resume();
-            }
-
-            std::coroutine_handle<> continuation_;
-        };
-
-
-    public:
-        // TODO: Should not be public
-        coro_handle handle_;
+        std::coroutine_handle<> m_continuation;
     };
-}
+
+public:
+    // TODO: Should not be public
+    CoroHandle m_handle;
+};
+} // namespace aifs
