@@ -8,9 +8,15 @@ namespace aifs::http {
 /**
  * Generic router interface.
  */
+
+enum class HandlerStatus {
+    Accepted,
+    NotAccepted
+};
+
 class Router {
 public:
     virtual ~Router() = default;
-    virtual Task<> handle(const Request&, Response&) = 0;
+    virtual Task<HandlerStatus> handle(const Request&, Response&) = 0;
 };
 }

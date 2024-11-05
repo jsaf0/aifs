@@ -40,7 +40,6 @@ public:
         while (!isStop()) {
             runOnce();
         }
-        spdlog::info("run done");
     }
 
     void stop()

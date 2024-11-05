@@ -48,7 +48,6 @@ void EventLoop::spawn(Task<> t)
 
 void EventLoop::runOnce()
 {
-    spdlog::info("runOnce");
     // If we have any waiting timers, the max timeout of the select Operation
     // should be the time until the first Timer expires.
     std::optional<MSDuration> timeout;

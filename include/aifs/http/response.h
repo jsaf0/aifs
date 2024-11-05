@@ -9,13 +9,14 @@
 namespace aifs::http {
 class Response {
 public:
-    Response(TCPSocket& socket);
+    Response(StreamSocket& socket);
     void setStatus(unsigned statusCode);
     void setHeader(const std::string& field, const std::string& value);
     Task<> send(std::string body);
 
 private:
-    TCPSocket& m_socket;
+    StreamSocket& m_socket;
+    bool m_sent;
     unsigned m_status;
     std::map<std::string, std::string> m_headers;
 };
