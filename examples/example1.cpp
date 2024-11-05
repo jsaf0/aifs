@@ -24,7 +24,7 @@ namespace http {
         {
             spdlog::info("Handle connection from {}:{}", socket_.remote_address(), socket_.remote_port());
             const std::string resp = "HTTP/1.1 200 OK\r\n\r\n";
-            /*co_await*/ socket_.send(resp);
+            // co_await socket_.send(resp);
             socket_.close();
             co_return;
         }
@@ -65,7 +65,7 @@ namespace http {
                 http_connection conn{std::move(socket)};
                 co_await conn.handle();
             } catch (const std::exception& e) {
-                spdlog::error("Got exception: {}", e.what());
+                spdlog::error("Got exception ({}): {}", __func__, e.what());
             }
         }
 
@@ -90,7 +90,7 @@ int main()
 
         ctx.run();
     } catch (const std::exception &e) {
-        spdlog::error("Got exception: {}\n", e.what());
+        spdlog::error("Got exception ({}): {}\n", __func__, e.what());
     }
     return 0;
 }

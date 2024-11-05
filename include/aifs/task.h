@@ -4,10 +4,6 @@
 #include <variant>
 #include <utility>
 
-#include <fmt/core.h>
-
-#include "handle.h"
-
 namespace aifs {
     template <typename T>
     struct Result {
