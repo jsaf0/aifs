@@ -2,8 +2,6 @@
 cmake_minimum_required(VERSION 3.22)
 project(aifs)
 
-list(APPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}")
-
 find_package(fmt)
 find_package(spdlog)
 find_package(http_parser)
